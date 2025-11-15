@@ -1,8 +1,17 @@
 import pandas as pd
 import torch
+import os
+import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
-from transformers import BertTokenizer, BertForSequenceClassification, pipeline
+from transformers import (
+    BertTokenizer, 
+    BertForSequenceClassification, 
+    pipeline,
+    TrainingArguments,
+    Trainer
+)
+from datasets import Dataset
 
 file_path = "data/financial_sentiment_full.txt"
 
@@ -83,10 +92,163 @@ nlp = pipeline("sentiment-analysis", model=finbert, tokenizer=tokenizer)
 
 print("Model loaded successfully!")
 
-# Test model trên một số mẫu
+# Chuẩn bị dữ liệu cho FinBERT (tokenization)
 print("\n" + "="*50)
-print("TESTING MODEL ON SAMPLE SENTENCES")
+print("PREPARING DATA FOR FINBERT")
 print("="*50)
+
+# Tạo DataFrame từ train/val/test sets
+train_df = pd.DataFrame({
+    "text": X_train.values,
+    "label_id": y_train.values
+})
+
+val_df = pd.DataFrame({
+    "text": X_val.values,
+    "label_id": y_val.values
+})
+
+test_df = pd.DataFrame({
+    "text": X_test.values,
+    "label_id": y_test.values
+})
+
+# Tạo Dataset từ pandas
+train_ds = Dataset.from_pandas(train_df[["text", "label_id"]])
+val_ds = Dataset.from_pandas(val_df[["text", "label_id"]])
+test_ds = Dataset.from_pandas(test_df[["text", "label_id"]])
+
+print(f"Created datasets: train={len(train_ds)}, val={len(val_ds)}, test={len(test_ds)}")
+
+# Hàm tokenize batch
+def tokenize_batch(batch):
+    return tokenizer(
+        batch["text"],
+        padding="max_length",
+        truncation=True,
+        max_length=128
+    )
+
+# Tokenize các dataset
+print("Tokenizing datasets...")
+train_ds = train_ds.map(tokenize_batch, batched=True)
+val_ds = val_ds.map(tokenize_batch, batched=True)
+test_ds = test_ds.map(tokenize_batch, batched=True)
+
+# Đổi tên label_id → labels cho Trainer
+train_ds = train_ds.rename_column("label_id", "labels")
+val_ds = val_ds.rename_column("label_id", "labels")
+test_ds = test_ds.rename_column("label_id", "labels")
+
+# Thiết lập các cột PyTorch cần
+train_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+val_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+test_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+
+print("Data preparation completed!")
+print(f"Train dataset columns: {train_ds.column_names}")
+print(f"Sample train data keys: {train_ds[0].keys()}")
+
+# Training model với Trainer
+print("\n" + "="*50)
+print("TRAINING MODEL WITH TRAINER")
+print("="*50)
+
+# Hàm compute metrics cho evaluation
+def compute_metrics(eval_pred):
+    predictions, labels = eval_pred
+    predictions = np.argmax(predictions, axis=1)
+    accuracy = accuracy_score(labels, predictions)
+    return {"accuracy": accuracy}
+
+# Training arguments
+training_args = TrainingArguments(
+    output_dir="./models/finbert-trained",
+    num_train_epochs=3,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    warmup_steps=100,
+    weight_decay=0.01,
+    logging_dir="./logs",
+    logging_steps=50,
+    eval_strategy="epoch",
+    save_strategy="epoch",
+    load_best_model_at_end=True,
+    metric_for_best_model="accuracy",
+    save_total_limit=2,
+    seed=42,
+    fp16=False,  # Set to True if using GPU with CUDA
+)
+
+# Tạo Trainer
+trainer = Trainer(
+    model=finbert,
+    args=training_args,
+    train_dataset=train_ds,
+    eval_dataset=val_ds,
+    compute_metrics=compute_metrics,
+)
+
+# Training
+print("Starting training...")
+trainer.train()
+
+# Evaluate trên validation set
+print("\n" + "="*50)
+print("EVALUATING ON VALIDATION SET")
+print("="*50)
+eval_results = trainer.evaluate()
+print(f"Validation Accuracy: {eval_results['eval_accuracy']:.4f}")
+
+# Evaluate trên test set
+print("\n" + "="*50)
+print("EVALUATING ON TEST SET")
+print("="*50)
+test_results = trainer.evaluate(test_ds)
+print(f"Test Accuracy: {test_results['eval_accuracy']:.4f}")
+
+# Save model và tokenizer
+print("\n" + "="*50)
+print("SAVING MODEL & TOKENIZER")
+print("="*50)
+
+model_save_path = "./models/finbert-trained/final"
+print(f"Saving model to {model_save_path}...")
+trainer.save_model(model_save_path)
+print("✓ Model saved successfully")
+
+print(f"Saving tokenizer to {model_save_path}...")
+tokenizer.save_pretrained(model_save_path)
+print("✓ Tokenizer saved successfully")
+
+# Kiểm tra các file đã được lưu
+saved_files = os.listdir(model_save_path)
+print(f"\nSaved files in {model_save_path}:")
+for file in sorted(saved_files):
+    file_path = os.path.join(model_save_path, file)
+    file_size = os.path.getsize(file_path)
+    if file_size > 1024 * 1024:
+        size_str = f"{file_size / (1024 * 1024):.2f} MB"
+    elif file_size > 1024:
+        size_str = f"{file_size / 1024:.2f} KB"
+    else:
+        size_str = f"{file_size} B"
+    print(f"  - {file} ({size_str})")
+
+print(f"\n✓ Model and tokenizer saved successfully to {model_save_path}")
+print("You can load the model later using:")
+print(f"  model = BertForSequenceClassification.from_pretrained('{model_save_path}')")
+print(f"  tokenizer = BertTokenizer.from_pretrained('{model_save_path}')")
+
+# Test model đã fine-tune trên một số mẫu
+print("\n" + "="*50)
+print("TESTING FINE-TUNED MODEL ON SAMPLE SENTENCES")
+print("="*50)
+
+# Load model đã fine-tune để test
+fine_tuned_model = BertForSequenceClassification.from_pretrained("./models/finbert-trained/final")
+fine_tuned_nlp = pipeline("sentiment-analysis", model=fine_tuned_model, tokenizer=tokenizer)
+
 test_sentences = [
     "there is a shortage of capital, and we need extra financing",
     "growth is strong and we have plenty of liquidity",
@@ -94,7 +256,7 @@ test_sentences = [
     "profits are flat"
 ]
 
-results = nlp(test_sentences)
+results = fine_tuned_nlp(test_sentences)
 for sentence, result in zip(test_sentences, results):
     label = result['label']
     score = result['score']

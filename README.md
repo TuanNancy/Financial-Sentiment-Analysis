@@ -17,7 +17,11 @@ financial-sentiment-analysis/
 ├── data/
 │   └── financial_sentiment_full.txt    # Dataset training
 ├── src/
-│   └── train_finbert.py               # Script training model
+│   ├── train_finbert.py               # Script training model
+│   ├── predict.py                     # Hàm dự đoán sentiment
+│   └── app.py                         # Streamlit web app
+├── models/
+│   └── finbert-trained/               # Model đã train
 ├── .gitignore
 └── README.md
 ```
@@ -43,16 +47,51 @@ source venv/bin/activate
 3. Cài đặt các gói cần thiết:
 
 ```bash
-pip install pandas numpy scikit-learn nltk transformers torch streamlit matplotlib seaborn
+pip install pandas numpy scikit-learn nltk transformers torch streamlit matplotlib seaborn datasets accelerate
 ```
 
 ## Sử dụng
 
-Chạy script để load và xử lý dataset:
+### Training Model
+
+Chạy script để train model:
 
 ```bash
 python src/train_finbert.py
 ```
+
+Model sẽ được lưu vào `./models/finbert-trained/final`
+
+### Dự đoán Sentiment
+
+Sử dụng script predict:
+
+```bash
+python src/predict.py
+```
+
+Hoặc import trong code:
+
+```python
+from src.predict import predict_sentiment
+
+label, confidence = predict_sentiment("The company expects strong revenue growth.")
+print(f"{label} ({confidence:.4f})")
+```
+
+### Web Demo với Streamlit
+
+Chạy web app:
+
+```bash
+streamlit run src/app.py
+```
+
+Web app sẽ mở tại `http://localhost:8501` với các tính năng:
+
+- 📝 **Single Text Analysis**: Phân tích sentiment cho một câu
+- 📄 **Batch Analysis**: Phân tích nhiều câu cùng lúc
+- 📊 **Visualization**: Hiển thị kết quả với màu sắc và confidence score
 
 ## Dataset
 
