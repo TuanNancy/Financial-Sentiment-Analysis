@@ -108,7 +108,7 @@ Dataset chứa 2478 mẫu với phân bố:
 - `neutral` → 2
 
 
-https://github.com/user-attachments/assets/65942fac-25fc-47b0-a12f-49c034fc77a8
+https://github.com/user-attachments/assets/9b69bae0-d822-4e24-b789-08a808e0accd
 
 
 Financial Sentiment Analysis Project
